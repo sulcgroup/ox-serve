@@ -59,11 +59,14 @@ wss.on('connection', (connection) => {
         clients.splice(index, 1);
 
         //TODO: make somehow async or policy speciffic  
-        fs.rmdirSync(dir, { recursive: true });
-        console.log(`client ${index} id disconnected`);
-        console.log(`removed assosiated working dir:`);
-        console.log(dir);
+        fs.rmdir(dir, (err)=>{
+            console.log(err);
+            console.log(`client ${index} id disconnected`);
+            console.log(`removed assosiated working dir:`);
+            console.log(dir);
+            console.log(`processes connected: ${clients.length}`);
+        });
         
-        console.log(`processes connected: ${clients.length}`);
+        
     });
 });
