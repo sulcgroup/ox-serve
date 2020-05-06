@@ -3,7 +3,27 @@ var config = require('./config'),
     https = require('http'), 
     { spawn } = require('child_process'), 
     WebSocketServer = require('ws').Server,
-    uuid = require('uuid');
+    uuid = require('uuid'), 
+    path = require('path');
+    
+/**
+ * Remove directory recursively
+ * @param {string} dir_path
+ * @see https://stackoverflow.com/a/42505874/3027390
+ */
+function rimraf(dir_path) {
+    if (fs.existsSync(dir_path)) {
+        fs.readdirSync(dir_path).forEach(function(entry) {
+            var entry_path = path.join(dir_path, entry);
+            if (fs.lstatSync(entry_path).isDirectory()) {
+                rimraf(entry_path);
+            } else {
+                fs.unlinkSync(entry_path);
+            }
+        });
+        fs.rmdirSync(dir_path);
+    }
+}    
 
 var oxDNA;
 var clients = [];
@@ -26,10 +46,18 @@ wss.on('connection', (connection) => {
         fs.mkdirSync(dir);
     }
 
+    let type, settings, top_file, dat_file;
     connection.on('message', (message) => {
         //parse incomming congiguration
-        let { type, settings, top_file, dat_file } = JSON.parse(message);
+        var data = JSON.parse(message);
         
+        //unfold data, cause we need settings to be defined before
+        //as we use it in connection.on('close')
+        type     = data.type;
+        settings = data.settings;
+        top_file = data.top_file;
+        dat_file = data.dat_file;
+
         //write topology and configuration into dedicated connection folder 
         fs.writeFileSync(`${dir}/conf_file.dat`, dat_file);
         fs.writeFileSync(`${dir}/last_conf.dat`, dat_file);
@@ -57,16 +85,14 @@ wss.on('connection', (connection) => {
     connection.on('close', (connection) => {
         // remove user from the list of connected clients
         clients.splice(index, 1);
-
-        //TODO: make somehow async or policy speciffic  
-        fs.rmdir(dir, (err)=>{
-            console.log(err);
+        if (!settings.save_dir){
+            //TODO: make somehow async or policy speciffic  
+            rimraf(dir);
             console.log(`client ${index} id disconnected`);
             console.log(`removed assosiated working dir:`);
             console.log(dir);
             console.log(`processes connected: ${clients.length}`);
-        });
-        
+        }
         
     });
 });
