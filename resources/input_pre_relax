@@ -1,0 +1,62 @@
+backend = CPU
+backend_precision = double
+max_backbone_force = 5
+max_backbone_force_far = 10
+# if no CUDA_device is specified, then oxDNA will try to 
+# find a suitable device to run on.
+#CUDA_device = 3
+interaction_type = DNA2
+salt_concentration = 1
+CUDA_list = verlet
+CUDA_sort_every = 0
+use_edge = 1
+edge_n_forces = 1
+debug = 0
+use_average_seq = 0
+seq_dep_file = oxDNA2_sequence_dependent_parameters.txt
+verlet_skin = 1.0
+debug = 1
+cells_auto_optimisation = true
+
+ensemble = NVT
+
+delta_translation = 0.22
+delta_rotation = 0.22
+sim_type=MC
+steps = 1e9
+newtonian_steps = 103
+diff_coeff = 2.50
+
+
+T = 30C
+dt = 0.002
+thermostat = langevin
+diff_coeff = 2.5
+newtonian_steps = 103
+steps = 1e2
+max_density_multiplier = 10
+
+reset_com_momentum = true
+refresh_vel = 1
+print_conf_interval = 1e1
+
+conf_file = conf_file.dat
+topology = top_file.top
+trajectory_file = trj.dat
+energy_file = energy.dat
+lastconf_file = last_conf.dat
+
+
+
+#trajectory_file = relax_trajectory.dat
+#energy_file = energy.dat
+restart_step_counter = 0
+print_energy_every = 1e1
+time_scale = linear
+
+#timings_filename = timings_1_0.001
+#print_timings = yes
+
+
+
+max_io=10
