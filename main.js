@@ -26,6 +26,7 @@ function rimraf(dir_path) {
 }    
 
 var oxDNA;
+let type, settings, top_file, dat_file;
 var clients = [];
 //Create a http server 
 var httpServer = https.createServer();
@@ -46,7 +47,6 @@ wss.on('connection', (connection) => {
         fs.mkdirSync(dir);
     }
 
-    let type, settings, top_file, dat_file;
     connection.on('message', (message) => {
         //parse incomming congiguration
         var data = JSON.parse(message);
@@ -67,32 +67,36 @@ wss.on('connection', (connection) => {
         fs.copyFileSync(`./resources/oxDNA2_sequence_dependent_parameters.txt`,`${dir}/oxDNA2_sequence_dependent_parameters.txt`);
         // perform simulation @ cwd = current working dir
         oxDNA = spawn(config.oxDNA, ['input_pre_relax'], { cwd: dir});
-                
+        console.log(`connection ${index}\t|\trelax\t|\t started`);
+
         // the trick is to have energy and conf file print settings to be the same
         oxDNA.stdout.on('data', (data) => {
-            console.log(`stdout: ${data}`);
+            //console.log(`stdout: ${data}`);
             // than we can transfer data easily 
             connection.send(JSON.stringify({
                 dat_file : fs.readFileSync(`${dir}/last_conf.dat`, 'utf8')
             }));
           });
               
-        oxDNA.stderr.on('data', (data) => { console.error(`stderr: ${data}`); });
-        oxDNA.on('close', (code) => {  });                    
-        
+        oxDNA.stderr.on('data', (data) => { 
+        //console.error(`stderr: ${data}`); 
+        });
+        oxDNA.on('close', (code) => { console.log(`connection ${index}\t|\trelax\t|\t finished`); });                            
     });
+
     // user disconnected
     connection.on('close', (connection) => {
         // remove user from the list of connected clients
         clients.splice(index, 1);
         if (!settings.save_dir){
+            //stop process just make sure no writing occures 
+            oxDNA.kill();
             //TODO: make somehow async or policy speciffic  
             rimraf(dir);
             console.log(`client ${index} id disconnected`);
             console.log(`removed assosiated working dir:`);
             console.log(dir);
             console.log(`processes connected: ${clients.length}`);
-        }
-        
+        }        
     });
 });
