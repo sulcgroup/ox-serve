@@ -26,7 +26,7 @@ function rimraf(dir_path) {
 }    
 
 var oxDNA;
-let type, settings, top_file, dat_file;
+let type, settings = {}, top_file, dat_file;
 var clients = [];
 //Create a http server 
 var httpServer = https.createServer();
