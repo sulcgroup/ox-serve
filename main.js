@@ -89,14 +89,16 @@ wss.on('connection', (connection) => {
         // remove user from the list of connected clients
         clients.splice(index, 1);
         if (!settings.save_dir){
-            //stop process just make sure no writing occures 
-            oxDNA.kill();
-            //TODO: make somehow async or policy speciffic  
-            rimraf(dir);
-            console.log(`client ${index} id disconnected`);
-            console.log(`removed assosiated working dir:`);
-            console.log(dir);
-            console.log(`processes connected: ${clients.length}`);
+            if(oxDNA){
+                //stop process just make sure no writing occures 
+                oxDNA.kill();
+                //TODO: make somehow async or policy speciffic  
+                rimraf(dir);
+                console.log(`client ${index} id disconnected`);
+                console.log(`removed assosiated working dir:`);
+                console.log(dir);
+                console.log(`processes connected: ${clients.length}`);
+            }
         }        
     });
 });
