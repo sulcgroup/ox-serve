@@ -30,7 +30,7 @@ let type, settings = {}, top_file, dat_file;
 var clients = [];
 //Create a http server 
 var httpServer = https.createServer();
-httpServer.listen(config.serverPort);
+httpServer.listen(config.serverPort, config.serverIP);
 console.log(`server listening on port ${config.serverPort}`);
 //Setup the Socket
 var wss = new WebSocketServer({ server: httpServer });
@@ -63,10 +63,10 @@ wss.on('connection', (connection) => {
         fs.writeFileSync(`${dir}/last_conf.dat`, dat_file);
         fs.writeFileSync(`${dir}/top_file.top`, top_file);
         //write input and base parameter files 
-        fs.copyFileSync(`./resources/input_pre_relax`,`${dir}/input_pre_relax`);
+        fs.copyFileSync(`./resources/${config.input_file}`,`${dir}/${config.input_file}`);
         fs.copyFileSync(`./resources/oxDNA2_sequence_dependent_parameters.txt`,`${dir}/oxDNA2_sequence_dependent_parameters.txt`);
         // perform simulation @ cwd = current working dir
-        oxDNA = spawn(config.oxDNA, ['input_pre_relax'], { cwd: dir});
+        oxDNA = spawn(config.oxDNA, [`${config.input_file}`], { cwd: dir});
         console.log(`connection ${index}\t|\trelax\t|\t started`);
 
         // the trick is to have energy and conf file print settings to be the same

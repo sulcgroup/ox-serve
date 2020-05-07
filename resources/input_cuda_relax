@@ -1,5 +1,5 @@
-backend = CPU
-backend_precision = double
+backend = CUDA
+backend_precision = mixed
 max_backbone_force = 5
 max_backbone_force_far = 10
 # if no CUDA_device is specified, then oxDNA will try to 
@@ -18,27 +18,19 @@ verlet_skin = 1.0
 debug = 1
 cells_auto_optimisation = true
 
-ensemble = NVT
-
-delta_translation = 0.22
-delta_rotation = 0.22
-sim_type=MC
-steps = 1e9
-newtonian_steps = 103
-diff_coeff = 2.50
-
 
 T = 30C
 dt = 0.002
 thermostat = langevin
 diff_coeff = 2.5
 newtonian_steps = 103
-steps = 1e3
+steps = 1e5
 max_density_multiplier = 10
 
 reset_com_momentum = true
 refresh_vel = 1
-print_conf_interval = 1e1
+print_conf_interval = 1e4
+
 
 conf_file = conf_file.dat
 topology = top_file.top
@@ -47,16 +39,11 @@ energy_file = energy.dat
 lastconf_file = last_conf.dat
 
 
-
-#trajectory_file = relax_trajectory.dat
-#energy_file = energy.dat
 restart_step_counter = 0
-print_energy_every = 1e1
+print_energy_every = 1e4
 time_scale = linear
 
-#timings_filename = timings_1_0.001
-#print_timings = yes
 
 
 
-max_io=10
+max_io=1000
