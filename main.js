@@ -1,11 +1,11 @@
 var config = require('./config'),
-    fs = require('fs'), 
-    https = require('http'), 
-    { spawn } = require('child_process'), 
+    fs = require('fs'),
+    https = require('http'),
+    { spawn } = require('child_process'),
     WebSocketServer = require('ws').Server,
-    uuid = require('uuid'), 
+    uuid = require('uuid'),
     path = require('path');
-    
+
 /**
  * Remove directory recursively
  * @param {string} dir_path
@@ -23,12 +23,12 @@ function rimraf(dir_path) {
         });
         fs.rmdirSync(dir_path);
     }
-}    
+}
 
 var oxDNA;
-let type, settings = {}, top_file, dat_file;
+let settings = {}, top_file, dat_file;
 var clients = [];
-//Create a http server 
+//Create a http server
 var httpServer = https.createServer();
 httpServer.listen(config.serverPort, config.serverIP);
 console.log(`server listening on port ${config.serverPort}`);
@@ -42,28 +42,57 @@ wss.on('connection', (connection) => {
     var user_id = uuid.v1();
 
     //create a work directory per connection
-    let dir = `${config.simulation_folder}/${user_id}`    
+    let dir = `${config.simulation_folder}/${user_id}`
     if (!fs.existsSync(dir)){
         fs.mkdirSync(dir);
     }
 
     connection.on('message', (message) => {
+        if (message === "abort") {
+            //handle simulation stop
+            if(oxDNA) oxDNA.kill();
+            return;
+        } 
+        //if relax is running kill it regardless of the message 
+        if(oxDNA) oxDNA.kill();
         //parse incomming congiguration
         var data = JSON.parse(message);
-        
+
         //unfold data, cause we need settings to be defined before
         //as we use it in connection.on('close')
-        type     = data.type;
+        //type     = data.type;
         settings = data.settings;
         top_file = data.top_file;
         dat_file = data.dat_file;
+        
+        //inject oxDNA configuration settings 
+        settings["conf_file"] = "conf_file.dat"
+        settings["topology"] = "top_file.top"
+        settings["trajectory_file"] = "trj.dat"
+        settings["energy_file"] = "energy.dat"
+        settings["lastconf_file"] = "last_conf.dat"
 
-        //write topology and configuration into dedicated connection folder 
+        //console.log(settings);
+
+        //construct input file from transmitted settings 
+        let input_file = [];
+        for(let [key, value] of Object.entries(settings)){
+            input_file.push(`${key} = ${value}`)
+        }            
+
+
+        //write topology and configuration into dedicated connection folder
         fs.writeFileSync(`${dir}/conf_file.dat`, dat_file);
         fs.writeFileSync(`${dir}/last_conf.dat`, dat_file);
         fs.writeFileSync(`${dir}/top_file.top`, top_file);
-        //write input and base parameter files 
-        fs.copyFileSync(`./resources/${config.input_file}`,`${dir}/${config.input_file}`);
+        
+
+        //write input and base parameter files
+        //fs.copyFileSync(`./resources/${config.input_file}`,`${dir}/${config.input_file}`);
+        fs.writeFileSync(`${dir}/${config.input_file}`, input_file.join('\n'));
+
+
+
         fs.copyFileSync(`./resources/oxDNA2_sequence_dependent_parameters.txt`,`${dir}/oxDNA2_sequence_dependent_parameters.txt`);
         // perform simulation @ cwd = current working dir
         oxDNA = spawn(config.oxDNA, [`${config.input_file}`], { cwd: dir});
@@ -71,17 +100,18 @@ wss.on('connection', (connection) => {
 
         // the trick is to have energy and conf file print settings to be the same
         oxDNA.stdout.on('data', (data) => {
-            //console.log(`stdout: ${data}`);
-            // than we can transfer data easily 
+            console.log(`stdout: ${data}`);
+            // than we can transfer data easily
             connection.send(JSON.stringify({
                 dat_file : fs.readFileSync(`${dir}/last_conf.dat`, 'utf8')
             }));
           });
-              
-        oxDNA.stderr.on('data', (data) => { 
-        //console.error(`stderr: ${data}`); 
+
+        oxDNA.stderr.on('data', (data) => {
+            
+            console.error(`stderr: ${data}`);
         });
-        oxDNA.on('close', (code) => { console.log(`connection ${index}\t|\trelax\t|\t finished`); });                            
+        oxDNA.on('close', (code) => { console.log(`connection ${index}\t|\trelax\t|\t finished`); });
     });
 
     // user disconnected
@@ -90,15 +120,15 @@ wss.on('connection', (connection) => {
         clients.splice(index, 1);
         if (!settings.save_dir){
             if(oxDNA){
-                //stop process just make sure no writing occures 
+                //stop process just make sure no writing occures
                 oxDNA.kill();
-                //TODO: make somehow async or policy speciffic  
+                //TODO: make somehow async or policy speciffic
                 rimraf(dir);
                 console.log(`client ${index} id disconnected`);
                 console.log(`removed assosiated working dir:`);
                 console.log(dir);
                 console.log(`processes connected: ${clients.length}`);
             }
-        }        
+        }
     });
 });
