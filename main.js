@@ -71,6 +71,13 @@ wss.on('connection', (connection) => {
         settings["trajectory_file"] = "trj.dat"
         settings["energy_file"] = "energy.dat"
         settings["lastconf_file"] = "last_conf.dat"
+        
+        if("trap_file" in data){
+            settings["external_forces"] = 1
+            settings["external_forces_file"] = "trap.txt"
+            //write forces file
+            fs.writeFileSync(`${dir}/trap.txt`, data.trap_file);
+        } 
 
         //console.log(settings);
 
@@ -103,7 +110,8 @@ wss.on('connection', (connection) => {
             console.log(`stdout: ${data}`);
             // than we can transfer data easily
             connection.send(JSON.stringify({
-                dat_file : fs.readFileSync(`${dir}/last_conf.dat`, 'utf8')
+                dat_file : fs.readFileSync(`${dir}/last_conf.dat`, 'utf8'),
+                console_log: data.toString()
             }));
           });
 
