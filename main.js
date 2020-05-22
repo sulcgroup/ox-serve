@@ -52,8 +52,8 @@ wss.on('connection', (connection) => {
             //handle simulation stop
             if(oxDNA) oxDNA.kill();
             return;
-        } 
-        //if relax is running kill it regardless of the message 
+        }
+        //if relax is running kill it regardless of the message
         if(oxDNA) oxDNA.kill();
         //parse incomming congiguration
         var data = JSON.parse(message);
@@ -64,35 +64,35 @@ wss.on('connection', (connection) => {
         settings = data.settings;
         top_file = data.top_file;
         dat_file = data.dat_file;
-        
-        //inject oxDNA configuration settings 
+
+        //inject oxDNA configuration settings
         settings["conf_file"] = "conf_file.dat"
         settings["topology"] = "top_file.top"
-        settings["trajectory_file"] = "trj.dat"
+        settings["trajectory_file"] = "/dev/null"//"trj.dat"
         settings["energy_file"] = "energy.dat"
         settings["lastconf_file"] = "last_conf.dat"
-        
+        settings["max_io"] = 10000
         if("trap_file" in data){
             settings["external_forces"] = 1
             settings["external_forces_file"] = "trap.txt"
             //write forces file
             fs.writeFileSync(`${dir}/trap.txt`, data.trap_file);
-        } 
+        }
 
         //console.log(settings);
 
-        //construct input file from transmitted settings 
+        //construct input file from transmitted settings
         let input_file = [];
         for(let [key, value] of Object.entries(settings)){
             input_file.push(`${key} = ${value}`)
-        }            
+        }
 
 
         //write topology and configuration into dedicated connection folder
         fs.writeFileSync(`${dir}/conf_file.dat`, dat_file);
         fs.writeFileSync(`${dir}/last_conf.dat`, dat_file);
         fs.writeFileSync(`${dir}/top_file.top`, top_file);
-        
+
 
         //write input and base parameter files
         //fs.copyFileSync(`./resources/${config.input_file}`,`${dir}/${config.input_file}`);
@@ -116,10 +116,16 @@ wss.on('connection', (connection) => {
           });
 
         oxDNA.stderr.on('data', (data) => {
-            
+
             console.error(`stderr: ${data}`);
         });
-        oxDNA.on('close', (code) => { console.log(`connection ${index}\t|\trelax\t|\t finished`); });
+        oxDNA.on('close', (code) => {
+            console.log(`connection ${index}\t|\trelax\t|\t finished`);
+            connection.send(JSON.stringify({
+                                 dat_file : fs.readFileSync(`${dir}/last_conf.dat`, 'utf8'),
+                                 console_log: data.toString()
+                             }));
+        });
     });
 
     // user disconnected
