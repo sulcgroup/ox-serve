@@ -109,10 +109,12 @@ wss.on('connection', (connection) => {
         oxDNA.stdout.on('data', (data) => {
             console.log(`stdout: ${data}`);
             // than we can transfer data easily
-            connection.send(JSON.stringify({
-                dat_file : fs.readFileSync(`${dir}/last_conf.dat`, 'utf8'),
-                console_log: data.toString()
-            }));
+            if (fs.existsSync(`${dir}/last_conf.dat`)){
+                connection.send(JSON.stringify({
+                    dat_file : fs.readFileSync(`${dir}/last_conf.dat`, 'utf8'),
+                    console_log: data.toString()
+                }));
+            }
           });
 
         oxDNA.stderr.on('data', (data) => {
@@ -121,10 +123,12 @@ wss.on('connection', (connection) => {
         });
         oxDNA.on('close', (code) => {
             console.log(`connection ${index}\t|\trelax\t|\t finished`);
-            connection.send(JSON.stringify({
+            if (fs.existsSync(`${dir}/last_conf.dat`)){
+                connection.send(JSON.stringify({
                                  dat_file : fs.readFileSync(`${dir}/last_conf.dat`, 'utf8'),
                                  console_log: data.toString()
                              }));
+            }
         });
     });
 
