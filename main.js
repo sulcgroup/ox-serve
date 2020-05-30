@@ -57,15 +57,26 @@ wss.on('connection', (connection) => {
         if(oxDNA) oxDNA.kill();
         //parse incomming congiguration
         var data = JSON.parse(message);
-
+        let useDNA = true;
         //unfold data, cause we need settings to be defined before
         //as we use it in connection.on('close')
         //type     = data.type;
         settings = data.settings;
         top_file = data.top_file;
         dat_file = data.dat_file;
-
         //inject oxDNA configuration settings
+        console.log(
+            settings["interaction_type"]
+        )
+        if(settings["interaction_type"].includes("DNA")){
+            useDNA = true;
+            settings["seq_dep_file"]="oxDNA2_sequence_dependent_parameters.txt"
+        }
+        else if (settings["interaction_type"].includes("RNA")) {
+            settings["seq_dep_file"]="rna_sequence_dependent_parameters.txt"
+            useDNA = false;
+        }
+
         settings["conf_file"] = "conf_file.dat"
         settings["topology"] = "top_file.top"
         settings["trajectory_file"] = "/dev/null"//"trj.dat"
@@ -99,8 +110,12 @@ wss.on('connection', (connection) => {
         fs.writeFileSync(`${dir}/${config.input_file}`, input_file.join('\n'));
 
 
-
-        fs.copyFileSync(`./resources/oxDNA2_sequence_dependent_parameters.txt`,`${dir}/oxDNA2_sequence_dependent_parameters.txt`);
+        if(useDNA){
+            fs.copyFileSync(`./resources/oxDNA2_sequence_dependent_parameters.txt`,`${dir}/oxDNA2_sequence_dependent_parameters.txt`);
+        }
+        else{
+            fs.copyFileSync(`./resources/rna_sequence_dependent_parameters.txt`,`${dir}/rna_sequence_dependent_parameters.txt`);
+        }
         // perform simulation @ cwd = current working dir
         oxDNA = spawn(config.oxDNA, [`${config.input_file}`], { cwd: dir});
         console.log(`connection ${index}\t|\trelax\t|\t started`);
