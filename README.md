@@ -11,4 +11,4 @@ Backend for driving oxDNA simulations from oxView.
 * Run the server by executing `node main.js`
 
 --- 
-## [Using ox-serve with google colab] (https://colab.research.google.com/drive/1nFC9zy-wEwwl8vlJZAbQZZofavP4PXvL#scrollTo=C_8TB2t5gxDg) 
+## [Using ox-serve with google colab](https://colab.research.google.com/drive/1nFC9zy-wEwwl8vlJZAbQZZofavP4PXvL#scrollTo=C_8TB2t5gxDg) 
