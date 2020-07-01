@@ -3,6 +3,9 @@ Backend for driving oxDNA simulations from oxView.
 *repo is in very active development* 
 
 ---
+## [Introduction into ox-serve.](https://www.youtube.com/watch?v=FtU-Sr3aLdI)
+
+---
 ## Installation 
 * Install [nodejs](https://nodejs.org/en/)
 * Clone the repository to your desired machine. 
