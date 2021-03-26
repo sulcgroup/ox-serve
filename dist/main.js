@@ -12,7 +12,7 @@ const config = {
     serverIP: "0.0.0.0",
     oxDNA: "/home/michael/oxDNA/build/bin/oxDNA",
     // path to your oxDNA executable
-    simulation_folder: "./simulations",
+    simulation_folder: "../simulations",
     input_file: "input"
 };
 /**
