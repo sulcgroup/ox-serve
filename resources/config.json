@@ -1,0 +1,15 @@
+{
+    "serverPort" : 8989,                              
+    "serverIP" : "0.0.0.0",
+    "oxDNA"   : "/home/micha/oxDNA/build/bin/oxDNA",
+    "simulation_folder": "../simulations",  
+    "input_file" : "input",
+    "default_oxDNA_settings":{
+        "conf_file"  : "conf_file.dat",
+        "topology"  : "top_file.top",
+        "trajectory_file"  : "/dev/null",
+        "energy_file"  : "energy.dat",
+        "lastconf_file"  : "last_conf.dat",
+        "max_io"  : "10000"
+    }
+}

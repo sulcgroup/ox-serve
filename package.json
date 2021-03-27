@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Backend for driving oxDNA simulations from oxView. ",
   "main": "main.js",
-  "type":"module",
+  "type": "module",
   "scripts": {
     "start": "node ./main.js"
   },
