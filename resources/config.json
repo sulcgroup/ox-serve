@@ -1,7 +1,7 @@
 {
     "serverPort" : 8989,                              
     "serverIP" : "0.0.0.0",
-    "oxDNA"   : "/home/micha/oxDNA/build/bin/oxDNA",
+    "oxDNA"   : "/home/micha/anm-oxdna/oxDNA/build/bin/oxDNA",
     "simulation_folder": "../simulations",  
     "input_file" : "input",
     "default_oxDNA_settings":{

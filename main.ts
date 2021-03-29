@@ -1,15 +1,14 @@
 import {spawn, ChildProcess} from "child_process";
 import * as uuid from "uuid";
 import WebSocket,* as _ from 'ws';
-import * as fs from "fs";
+import {mkdirSync, existsSync, writeFileSync, readFileSync,copyFileSync} from "fs";
 import {rimraf} from "./lib/utils.js"
-const config = JSON.parse(fs.readFileSync('./resources/config.json', 'utf8'));
-
+const config = JSON.parse(readFileSync('./resources/config.json', 'utf8'));
 
 
 // at every restart we clear the simulations directory
 rimraf(config.simulation_folder);
-fs.mkdirSync(config.simulation_folder);
+mkdirSync(config.simulation_folder);
 
 //store the ox-view connection
 var clients :Array<WebSocket> = new Array<WebSocket>();
@@ -30,8 +29,8 @@ wss.on('connection', (connection:WebSocket) => {
 
     //create a work directory per connection
     let dir = `${config.simulation_folder}/${user_id}`
-    if (!fs.existsSync(dir)){
-        fs.mkdirSync(dir);
+    if (!existsSync(dir)){
+        mkdirSync(dir);
     }
 
     connection.on('message', (message: string) => {
@@ -43,7 +42,7 @@ wss.on('connection', (connection:WebSocket) => {
         //if relax is running kill it regardless of the message
         if(oxDNA) oxDNA.kill();
         //parse incomming congiguration
-        var data = JSON.parse(message);
+        var data = JSON.parse(message); 
         let useDNA = true;
 
         top_file = data.top_file;
@@ -66,7 +65,12 @@ wss.on('connection', (connection:WebSocket) => {
             settings["external_forces"] = "1";
             settings["external_forces_file"] = "trap.txt"
             //write forces file
-            fs.writeFileSync(`${dir}/trap.txt`, data.trap_file);
+            writeFileSync(`${dir}/trap.txt`, data.trap_file);
+        }
+        if("par_file" in data){
+            settings["parfile"] = "par_file.par"
+            //write par file (for anm)
+            writeFileSync(`${dir}/par_file.par`, data.par_file);
         }
 
         //construct input file from transmitted settings
@@ -77,20 +81,19 @@ wss.on('connection', (connection:WebSocket) => {
 
 
         //write topology and configuration into dedicated connection folder
-        fs.writeFileSync(`${dir}/conf_file.dat`, dat_file);
-        fs.writeFileSync(`${dir}/last_conf.dat`, dat_file);
-        fs.writeFileSync(`${dir}/top_file.top`,  top_file);
+        writeFileSync(`${dir}/conf_file.dat`, dat_file);
+        writeFileSync(`${dir}/last_conf.dat`, dat_file);
+        writeFileSync(`${dir}/top_file.top`,  top_file);
 
 
         //write input and base parameter files
-        //fs.copyFileSync(`./resources/${config.input_file}`,`${dir}/${config.input_file}`);
-        fs.writeFileSync(`${dir}/${config.input_file}`, input_file.join('\n'));
+        writeFileSync(`${dir}/${config.input_file}`, input_file.join('\n'));
 
         if(useDNA){
-            fs.copyFileSync(`./resources/oxDNA2_sequence_dependent_parameters.txt`,`${dir}/oxDNA2_sequence_dependent_parameters.txt`);
+            copyFileSync(`./resources/oxDNA2_sequence_dependent_parameters.txt`,`${dir}/oxDNA2_sequence_dependent_parameters.txt`);
         }
         else{
-            fs.copyFileSync(`./resources/rna_sequence_dependent_parameters.txt`,`${dir}/rna_sequence_dependent_parameters.txt`);
+            copyFileSync(`./resources/rna_sequence_dependent_parameters.txt`,`${dir}/rna_sequence_dependent_parameters.txt`);
         }
         // perform simulation @ cwd = current working dir
         oxDNA = spawn(config.oxDNA, [`${config.input_file}`], { cwd: dir});
@@ -101,9 +104,9 @@ wss.on('connection', (connection:WebSocket) => {
             oxDNA.stdout.on('data', (data:string) => {
                 console.log(`stdout: ${data}`);
                 // than we can transfer data easily
-                if (fs.existsSync(`${dir}/last_conf.dat`)){
+                if (existsSync(`${dir}/last_conf.dat`)){
                     connection.send(JSON.stringify({
-                        dat_file : fs.readFileSync(`${dir}/last_conf.dat`, 'utf8'),
+                        dat_file : readFileSync(`${dir}/last_conf.dat`, 'utf8'),
                         console_log: data.toString()
                     }));
                 }
@@ -118,9 +121,9 @@ wss.on('connection', (connection:WebSocket) => {
 
         oxDNA.on('close', (code : number) => {
             console.log(`connection ${index}\t|\trelax\t|\tfinished\t|\tcode: ${code}`);
-            if (fs.existsSync(`${dir}/last_conf.dat`)){
+            if (existsSync(`${dir}/last_conf.dat`)){
                 connection.send(JSON.stringify({
-                                 dat_file : fs.readFileSync(`${dir}/last_conf.dat`, 'utf8'),
+                                 dat_file : readFileSync(`${dir}/last_conf.dat`, 'utf8'),
                                  console_log: data.toString()
                              }));
             }
