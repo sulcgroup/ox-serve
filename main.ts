@@ -11,7 +11,7 @@ const config = JSON.parse(fs.readFileSync('./resources/config.json', 'utf8'));
 rimraf(config.simulation_folder);
 fs.mkdirSync(config.simulation_folder);
 
-
+//store the ox-view connection
 var clients :Array<WebSocket> = new Array<WebSocket>();
 
 //Setup the SocketServer
@@ -79,7 +79,7 @@ wss.on('connection', (connection:WebSocket) => {
         //write topology and configuration into dedicated connection folder
         fs.writeFileSync(`${dir}/conf_file.dat`, dat_file);
         fs.writeFileSync(`${dir}/last_conf.dat`, dat_file);
-        fs.writeFileSync(`${dir}/top_file.top`, top_file);
+        fs.writeFileSync(`${dir}/top_file.top`,  top_file);
 
 
         //write input and base parameter files

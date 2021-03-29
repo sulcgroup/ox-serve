@@ -7,6 +7,7 @@ const config = JSON.parse(fs.readFileSync('./resources/config.json', 'utf8'));
 // at every restart we clear the simulations directory
 rimraf(config.simulation_folder);
 fs.mkdirSync(config.simulation_folder);
+//store the ox-view connection
 var clients = new Array();
 //Setup the SocketServer
 var wss = new WebSocket.Server({ port: config.serverPort, host: config.serverIP });
