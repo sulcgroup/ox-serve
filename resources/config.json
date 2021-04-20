@@ -4,6 +4,7 @@
     "oxDNA"   : "/home/micha/anm-oxdna/oxDNA/build/bin/oxDNA",
     "simulation_folder": "../simulations",  
     "input_file" : "input",
+    "allowed_connections":5,
     "default_oxDNA_settings":{
         "conf_file"  : "conf_file.dat",
         "topology"  : "top_file.top",

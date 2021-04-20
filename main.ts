@@ -25,6 +25,13 @@ wss.on('connection', (connection:WebSocket) => {
     // we need to know client index to remove them on 'close' event
     var index = clients.push(connection) - 1;
     console.log(`processes connected: ${clients.length}`);
+
+    if (index >= config.allowed_connections) {
+        console.log("refused connection");
+        connection.close();
+        return;
+     } // limit connection numbers
+
     var user_id = uuid.v1();
 
     //create a work directory per connection
