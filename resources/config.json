@@ -11,6 +11,7 @@
         "trajectory_file"  : "/dev/null",
         "energy_file"  : "energy.dat",
         "lastconf_file"  : "last_conf.dat",
-        "max_io"  : "10000"
+        "max_io"  : "10000",
+        "bussi_tau" : "1"
     }
 }
