@@ -51,10 +51,10 @@ wss.on('connection', (connection) => {
         console.log(settings["interaction_type"]);
         if (settings["interaction_type"].includes("DNA")) {
             useDNA = true;
-            settings["seq_dep_file"] = "oxDNA2_sequence_dependent_parameters.txt";
+            settings["seq_dep_file_DNA"] = "oxDNA2_sequence_dependent_parameters.txt";
         }
         else if (settings["interaction_type"].includes("RNA")) {
-            settings["seq_dep_file"] = "rna_sequence_dependent_parameters.txt";
+            settings["seq_dep_file_RNA"] = "rna_sequence_dependent_parameters.txt";
             useDNA = false;
         }
         if ("trap_file" in data) {
