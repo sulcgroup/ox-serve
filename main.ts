@@ -7,393 +7,46 @@ import {
     writeFileSync,
     readFileSync,
     copyFileSync,
-    appendFileSync,
 } from "fs";
 import { rimraf } from "./lib/utils.js";
 import { createServer } from "http";
 import { IncomingMessage } from "http"; 
-import path from "path";
 import os from "os";
-
-const FORBIDDEN_TRANSFER_KEYS = [
-    /(^|_)file$/,
-    /(^|_)filename$/,
-    /(^|_)path$/,
-    /(^|_)dir$/,
-    /(^|_)prefix$/,
-    /^topology$/,
-    /^reload_from$/,
-    /^plugin_/,
-];
-
-type ClientLogEntry = {
-    sessionId: string;
-    ip: string;
-    location: string;
-    userAgent: string;
-    browser: string;
-    connectedAt: string;
-    disconnectedAt: string;
-    durationMs: number;
-    messages: number;
-    simulationsStarted: number;
-    simulationsCompleted: number;
-    simulationsFailed: number;
-    bytesReceived: number;
-    bytesSent: number;
-    largestMessageBytes: number;
-    largestSendBytes: number;
-};
-
-type IpSummary = {
-    ip: string;
-    location: string;
-    totalConnections: number;
-    totalConnectedMs: number;
-    totalMessages: number;
-    totalSimulationsStarted: number;
-    totalSimulationsCompleted: number;
-    totalSimulationsFailed: number;
-    totalBytesReceived: number;
-    totalBytesSent: number;
-    largestMessageBytes: number;
-    largestSendBytes: number;
-    lastSeen: string;
-    browsers: Record<string, number>;
-};
-
-type ActiveSessionInfo = {
-    sessionId: string;
-    ip: string;
-    location: string;
-    userAgent: string;
-    browser: string;
-    connectedAt: string;
-    messages: number;
-    simulationsStarted: number;
-    simulationsCompleted: number;
-    simulationsFailed: number;
-    bytesReceived: number;
-    bytesSent: number;
-    currentSimulation?: ActiveSimulationInfo;
-};
-
-type ActiveSimulationInfo = {
-    startedAt: string;
-    interactionType: string;
-    bases: number;
-    strands: number;
-    hasExternalForces: boolean;
-    hasANM: boolean;
-};
-
-type UsageSample = {
-    timestamp: string;
-    activeSessionCount: number;
-    activeIpCount: number;
-    activeSimulationCount: number;
-    allowedConnections: number;
-    loadavg1: number;
-    loadavg5: number;
-    loadavg15: number;
-    serverRssMB: number;
-    serverHeapUsedMB: number;
-};
-
-type SimulationEvent = {
-    sessionId: string;
-    ip: string;
-    browser: string;
-    event: "started" | "finished" | "error";
-    timestamp: string;
-    interactionType: string;
-    bases: number;
-    strands: number;
-    hasExternalForces: boolean;
-    hasANM: boolean;
-    runtimeMs?: number;
-    exitCode?: number | null;
-    errorMessage?: string;
-    loadavg1: number;
-    serverRssMB: number;
-};
+import {
+    detectBrowser,
+    getClientIp,
+    getHeader,
+    getLocation,
+} from "./lib/client-info.js";
+import {
+    ActiveSessionInfo,
+    ActiveSimulationInfo,
+    ClientLogEntry,
+    ensureLogDir,
+    formatDuration,
+    logSession,
+    payloadSize,
+    recordSimulationEvent,
+    recordUsageSample,
+    saveLiveStatus,
+    updateIpSummary,
+} from "./lib/logging.js";
+import {
+    hasANMSettings,
+    hasExternalForcesSettings,
+    OxDNASettingValue,
+    sanitizeTransferredOxDNASettings,
+} from "./lib/settings.js";
+import { parseTopologyStats } from "./lib/topology.js";
 
 const config = JSON.parse(readFileSync("./resources/config.json", "utf8"));
 
 const SUPPRESS_TERMINAL_STDOUT = config.suppress_terminal_stdout ?? true;
 
-const LOG_DIR = "./logs";
-const SESSION_LOG = `${LOG_DIR}/sessions.jsonl`;
-const SUMMARY_LOG = `${LOG_DIR}/ip_summary.json`;
-const LIVE_STATUS_LOG = `${LOG_DIR}/live_status.json`;
-const USAGE_TIMESERIES_LOG = `${LOG_DIR}/usage_timeseries.jsonl`;
-const SIMULATION_EVENTS_LOG = `${LOG_DIR}/simulation_events.jsonl`;
-
-if (!existsSync(LOG_DIR)) {
-    mkdirSync(LOG_DIR);
-}
+ensureLogDir();
 
 const activeSessionInfo = new Map<string, ActiveSessionInfo>();
-
-function isForbiddenTransferKey(key: string): boolean {
-    return FORBIDDEN_TRANSFER_KEYS.some((re) => re.test(key));
-}
-
-function validateScalarSetting(
-    key: string,
-    raw: unknown,
-): string | number | boolean {
-    if (
-        typeof raw !== "string" &&
-        typeof raw !== "number" &&
-        typeof raw !== "boolean"
-    ) {
-        throw new Error(`Invalid setting '${key}': unsupported value type`);
-    }
-
-    if (typeof raw !== "string") return raw;
-
-    const value = raw.trim();
-
-    if (/[\r\n;]/.test(value)) {
-        throw new Error(`Invalid setting '${key}': input injection`);
-    }
-
-    if (value.includes("$(") || value.includes("${")) {
-        throw new Error(`Invalid setting '${key}': oxDNA expansion forbidden`);
-    }
-
-    if (path.isAbsolute(value) || value.includes("/") || value.includes("\\")) {
-        throw new Error(`Invalid setting '${key}': path value forbidden`);
-    }
-
-    return value;
-}
-
-export function sanitizeTransferredOxDNASettings(
-    transferred: Record<string, unknown>,
-    useDNA: boolean,
-): Record<string, string | number | boolean> {
-    const clean: Record<string, string | number | boolean> = {};
-
-    for (const [key, raw] of Object.entries(transferred)) {
-        if (isForbiddenTransferKey(key)) continue;
-        clean[key] = validateScalarSetting(key, raw);
-    }
-
-    clean["conf_file"] = "conf_file.dat";
-    clean["topology"] = "top_file.top";
-    clean["lastconf_file"] = "last_conf.dat";
-    clean["trajectory_file"] = "/dev/null";
-    clean["energy_file"] = "/dev/null";
-    clean["log_file"] = "log.dat";
-    clean["print_input"] = false;
-    clean["seq_dep_file"] = useDNA
-        ? "oxDNA2_sequence_dependent_parameters.txt"
-        : "rna_sequence_dependent_parameters.txt";
-
-    return clean;
-}
-
-function getHeader(req: IncomingMessage, name: string): string | undefined {
-    const value = req.headers[name.toLowerCase()];
-    if (Array.isArray(value)) return value[0];
-    return value;
-}
-
-function getClientIp(req: IncomingMessage): string {
-    const cfIp = getHeader(req, "cf-connecting-ip");
-    if (cfIp) return cfIp.trim();
-
-    const trueClientIp = getHeader(req, "true-client-ip");
-    if (trueClientIp) return trueClientIp.trim();
-
-    const forwarded = getHeader(req, "x-forwarded-for");
-    if (forwarded) return forwarded.split(",")[0].trim();
-
-    const realIp = getHeader(req, "x-real-ip");
-    if (realIp) return realIp.trim();
-
-    return req.socket.remoteAddress ?? "unknown";
-}
-
-function getLocation(req: IncomingMessage): string {
-    const country =
-        getHeader(req, "cf-ipcountry") ??
-        getHeader(req, "x-vercel-ip-country") ??
-        getHeader(req, "x-country-code") ??
-        "unknown";
-
-    const city =
-        getHeader(req, "x-vercel-ip-city") ??
-        getHeader(req, "cf-ipcity") ??
-        getHeader(req, "x-city") ??
-        "";
-
-    return city ? `${city}, ${country}` : country;
-}
-
-function detectBrowser(userAgent: string): string {
-    if (userAgent.includes("Firefox/")) return "Firefox";
-    if (userAgent.includes("Edg/")) return "Edge";
-    if (userAgent.includes("Chrome/")) return "Chrome";
-    if (userAgent.includes("Safari/")) return "Safari";
-    return "Unknown";
-}
-
-function parseTopologyStats(topologyText: string): { bases: number; strands: number } {
-    const firstDataLine = topologyText
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .find((line) => line.length > 0 && !line.startsWith("#"));
-
-    if (!firstDataLine) {
-        return { bases: 0, strands: 0 };
-    }
-
-    const parts = firstDataLine.split(/\s+/).map(Number);
-
-    return {
-        bases: Number.isFinite(parts[0]) ? parts[0] : 0,
-        strands: Number.isFinite(parts[1]) ? parts[1] : 0,
-    };
-}
-
-function hasANMSettings(data: any, settings: Record<string, string | number | boolean>): boolean {
-    return "par_file" in data || "parfile" in settings;
-}
-
-function hasExternalForcesSettings(data: any, settings: Record<string, string | number | boolean>): boolean {
-    return "trap_file" in data || settings["external_forces"] === "1";
-}
-
-function loadSummary(): Record<string, IpSummary> {
-    if (!existsSync(SUMMARY_LOG)) return {};
-
-    try {
-        return JSON.parse(readFileSync(SUMMARY_LOG, "utf8"));
-    } catch {
-        return {};
-    }
-}
-
-function saveSummary(summary: Record<string, IpSummary>): void {
-    writeFileSync(SUMMARY_LOG, JSON.stringify(summary, null, 2));
-}
-
-function appendJsonl(file: string, value: unknown): void {
-    appendFileSync(file, JSON.stringify(value) + "\n");
-}
-
-function logSession(entry: ClientLogEntry): void {
-    appendJsonl(SESSION_LOG, entry);
-}
-
-function updateIpSummary(entry: ClientLogEntry): void {
-    const summary = loadSummary();
-
-    if (!summary[entry.ip]) {
-        summary[entry.ip] = {
-            ip: entry.ip,
-            location: entry.location,
-            totalConnections: 0,
-            totalConnectedMs: 0,
-            totalMessages: 0,
-            totalSimulationsStarted: 0,
-            totalSimulationsCompleted: 0,
-            totalSimulationsFailed: 0,
-            totalBytesReceived: 0,
-            totalBytesSent: 0,
-            largestMessageBytes: 0,
-            largestSendBytes: 0,
-            lastSeen: entry.disconnectedAt,
-            browsers: {},
-        };
-    }
-
-    const ipEntry = summary[entry.ip];
-
-    ipEntry.location = entry.location;
-    ipEntry.totalConnections += 1;
-    ipEntry.totalConnectedMs += entry.durationMs;
-    ipEntry.totalMessages += entry.messages;
-    ipEntry.totalSimulationsStarted += entry.simulationsStarted;
-    ipEntry.totalSimulationsCompleted += entry.simulationsCompleted;
-    ipEntry.totalSimulationsFailed += entry.simulationsFailed;
-    ipEntry.totalBytesReceived += entry.bytesReceived;
-    ipEntry.totalBytesSent += entry.bytesSent;
-    ipEntry.largestMessageBytes = Math.max(ipEntry.largestMessageBytes, entry.largestMessageBytes);
-    ipEntry.largestSendBytes = Math.max(ipEntry.largestSendBytes, entry.largestSendBytes);
-    ipEntry.lastSeen = entry.disconnectedAt;
-    ipEntry.browsers[entry.browser] =
-        (ipEntry.browsers[entry.browser] ?? 0) + 1;
-
-    saveSummary(summary);
-}
-
-function currentUsageSample(): UsageSample {
-    const activeSessions = Array.from(activeSessionInfo.values());
-    const activeIps = new Set(activeSessions.map((s) => s.ip));
-    const activeSimulationCount = activeSessions.filter((s) => s.currentSimulation).length;
-    const loadavg = os.loadavg();
-    const memory = process.memoryUsage();
-
-    return {
-        timestamp: new Date().toISOString(),
-        activeSessionCount: activeSessions.length,
-        activeIpCount: activeIps.size,
-        activeSimulationCount,
-        allowedConnections: Number(config.allowed_connections ?? 0),
-        loadavg1: loadavg[0],
-        loadavg5: loadavg[1],
-        loadavg15: loadavg[2],
-        serverRssMB: Math.round(memory.rss / 1024 / 1024),
-        serverHeapUsedMB: Math.round(memory.heapUsed / 1024 / 1024),
-    };
-}
-
-function saveLiveStatus(): void {
-    const activeSessions = Array.from(activeSessionInfo.values());
-    const sample = currentUsageSample();
-
-    writeFileSync(
-        LIVE_STATUS_LOG,
-        JSON.stringify(
-            {
-                ...sample,
-                activeSessions,
-            },
-            null,
-            2,
-        ),
-    );
-}
-
-function recordUsageSample(): void {
-    const sample = currentUsageSample();
-    appendJsonl(USAGE_TIMESERIES_LOG, sample);
-    saveLiveStatus();
-}
-
-function recordSimulationEvent(event: SimulationEvent): void {
-    appendJsonl(SIMULATION_EVENTS_LOG, event);
-}
-
-function formatDuration(ms: number): string {
-    const seconds = Math.floor(ms / 1000);
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    return `${h}h ${m}m ${s}s`;
-}
-
-function payloadSize(payload: unknown): number {
-    try {
-        return Buffer.byteLength(JSON.stringify(payload), "utf8");
-    } catch {
-        return 0;
-    }
-}
+const allowedConnections = Number(config.allowed_connections ?? 0);
 
 const server = createServer({});
 
@@ -403,8 +56,8 @@ mkdirSync(config.simulation_folder);
 const clients = new Set<WebSocket>();
 const wss = new WebSocket.Server({ server });
 
-saveLiveStatus();
-recordUsageSample();
+saveLiveStatus(activeSessionInfo, allowedConnections);
+recordUsageSample(activeSessionInfo, allowedConnections);
 
 console.log(`server listening on port ${config.serverPort}`);
 
@@ -415,10 +68,10 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
         console.log(JSON.stringify(req.headers, null, 2));
     }
 
-    if (clients.size >= config.allowed_connections) {
+    if (clients.size >= allowedConnections) {
         console.log("refused connection");
         connection.close();
-        recordUsageSample();
+        recordUsageSample(activeSessionInfo, allowedConnections);
         return;
     }
 
@@ -474,7 +127,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
         active.bytesSent = bytesSent;
         active.currentSimulation = currentSimulationMeta;
 
-        saveLiveStatus();
+        saveLiveStatus(activeSessionInfo, allowedConnections);
     }
 
     function sendTracked(payload: unknown): void {
@@ -488,7 +141,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
         updateActiveSession();
     }
 
-    recordUsageSample();
+    recordUsageSample(activeSessionInfo, allowedConnections);
 
     console.log(`client ${user_id} connected | ip=${ip} | browser=${browser}`);
     console.log(`processes connected: ${clients.size}`);
@@ -536,7 +189,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
 
         logSession(entry);
         updateIpSummary(entry);
-        recordUsageSample();
+        recordUsageSample(activeSessionInfo, allowedConnections);
 
         console.log(`client ${user_id} cleaned up | code: ${code ?? "unknown"}`);
         console.log(
@@ -564,7 +217,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
             }
             currentSimulationMeta = undefined;
             updateActiveSession();
-            recordUsageSample();
+            recordUsageSample(activeSessionInfo, allowedConnections);
             return;
         }
 
@@ -595,7 +248,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
 
         const useDNA = !interactionType.includes("RNA");
 
-        const settings: Record<string, string | number | boolean> = {
+        const settings: Record<string, OxDNASettingValue> = {
             ...config.default_oxDNA_settings,
             ...sanitizeTransferredOxDNASettings(transferredSettings, useDNA),
         };
@@ -648,7 +301,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
         };
 
         updateActiveSession();
-        recordUsageSample();
+        recordUsageSample(activeSessionInfo, allowedConnections);
 
         recordSimulationEvent({
             sessionId: user_id,
@@ -719,7 +372,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
             oxDNA = undefined;
             currentSimulationMeta = undefined;
             updateActiveSession();
-            recordUsageSample();
+            recordUsageSample(activeSessionInfo, allowedConnections);
         });
 
         oxDNA.on("close", (code: number | null) => {
@@ -763,7 +416,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
             }
 
             updateActiveSession();
-            recordUsageSample();
+            recordUsageSample(activeSessionInfo, allowedConnections);
         });
     });
 
@@ -778,8 +431,8 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
 const LIVE_STATUS_INTERVAL_MS = Number(config.live_status_interval_ms ?? 5000);
 
 setInterval(() => {
-    saveLiveStatus();
-    recordUsageSample();
+    saveLiveStatus(activeSessionInfo, allowedConnections);
+    recordUsageSample(activeSessionInfo, allowedConnections);
 }, LIVE_STATUS_INTERVAL_MS);
 
 server.listen(config.serverPort, config.serverIP);
