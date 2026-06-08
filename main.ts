@@ -9,9 +9,11 @@ import {
     copyFileSync,
 } from "fs";
 import { rimraf } from "./lib/utils.js";
-import { createServer } from "http";
+import { createServer as createHttpServer } from "http";
 import { IncomingMessage } from "http"; 
+import { createServer as createHttpsServer } from "https";
 import os from "os";
+import { loadCertificateOptions } from "./lib/certificates.js";
 import {
     detectBrowser,
     getClientIp,
@@ -47,8 +49,11 @@ ensureLogDir();
 
 const activeSessionInfo = new Map<string, ActiveSessionInfo>();
 const allowedConnections = Number(config.allowed_connections ?? 0);
+const certificateOptions = loadCertificateOptions(process.argv.slice(2));
 
-const server = createServer({});
+const server = certificateOptions
+    ? createHttpsServer(certificateOptions)
+    : createHttpServer({});
 
 rimraf(config.simulation_folder);
 mkdirSync(config.simulation_folder);
@@ -59,7 +64,11 @@ const wss = new WebSocket.Server({ server });
 saveLiveStatus(activeSessionInfo, allowedConnections);
 recordUsageSample(activeSessionInfo, allowedConnections);
 
-console.log(`server listening on port ${config.serverPort}`);
+console.log(
+    `${certificateOptions ? "https" : "http"} server listening on port ${
+        config.serverPort
+    }`,
+);
 
 wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
     if (config.debug_headers) {
