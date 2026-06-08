@@ -2,10 +2,12 @@
   "name": "ox-serve",
   "version": "1.0.0",
   "description": "Backend for driving oxDNA simulations from oxView. ",
-  "main": "main.js",
+  "main": "dist/main.js",
   "type": "module",
   "scripts": {
-    "start": "node ./main.js"
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "start": "node ./dist/main.js"
   },
   "repository": {
     "type": "git",

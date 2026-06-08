@@ -9,11 +9,10 @@ import {
     copyFileSync,
 } from "fs";
 import { rimraf } from "./lib/utils.js";
-import { createServer as createHttpServer } from "http";
 import { IncomingMessage } from "http"; 
-import { createServer as createHttpsServer } from "https";
 import os from "os";
 import { loadCertificateOptions } from "./lib/certificates.js";
+import { getHelpText, parseCliOptions } from "./lib/cli.js";
 import {
     detectBrowser,
     getClientIp,
@@ -39,21 +38,27 @@ import {
     OxDNASettingValue,
     sanitizeTransferredOxDNASettings,
 } from "./lib/settings.js";
+import { createConfiguredServer } from "./lib/server.js";
 import { parseTopologyStats } from "./lib/topology.js";
 
-const config = JSON.parse(readFileSync("./resources/config.json", "utf8"));
+const cliOptions = parseCliOptions(process.argv.slice(2));
+
+if (cliOptions.showHelp) {
+    console.log(getHelpText());
+    process.exit(0);
+}
+
+const config = JSON.parse(readFileSync(cliOptions.configFile, "utf8"));
 
 const SUPPRESS_TERMINAL_STDOUT = config.suppress_terminal_stdout ?? true;
 
 ensureLogDir();
 
 const activeSessionInfo = new Map<string, ActiveSessionInfo>();
+const activeChildProcesses = new Set<ChildProcess>();
 const allowedConnections = Number(config.allowed_connections ?? 0);
 const certificateOptions = loadCertificateOptions(process.argv.slice(2));
-
-const server = certificateOptions
-    ? createHttpsServer(certificateOptions)
-    : createHttpServer({});
+const { protocol, server } = createConfiguredServer(certificateOptions);
 
 rimraf(config.simulation_folder);
 mkdirSync(config.simulation_folder);
@@ -64,11 +69,7 @@ const wss = new WebSocket.Server({ server });
 saveLiveStatus(activeSessionInfo, allowedConnections);
 recordUsageSample(activeSessionInfo, allowedConnections);
 
-console.log(
-    `${certificateOptions ? "https" : "http"} server listening on port ${
-        config.serverPort
-    }`,
-);
+console.log(`${protocol} server listening on port ${config.serverPort}`);
 
 wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
     if (config.debug_headers) {
@@ -166,6 +167,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
         clients.delete(connection);
 
         if (oxDNA) {
+            activeChildProcesses.delete(oxDNA);
             oxDNA.kill();
             oxDNA = undefined;
         }
@@ -221,6 +223,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
 
         if (message === "abort") {
             if (oxDNA) {
+                activeChildProcesses.delete(oxDNA);
                 oxDNA.kill();
                 oxDNA = undefined;
             }
@@ -231,6 +234,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
         }
 
         if (oxDNA) {
+            activeChildProcesses.delete(oxDNA);
             oxDNA.kill();
             oxDNA = undefined;
             currentSimulationMeta = undefined;
@@ -328,6 +332,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
         });
 
         oxDNA = spawn(config.oxDNA, [config.input_file], { cwd: dir });
+        activeChildProcesses.add(oxDNA);
 
         console.log(`client ${user_id} | relax | started`);
 
@@ -378,6 +383,9 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
                 console_log: `oxDNA error: ${err.message}`,
             });
 
+            if (oxDNA) {
+                activeChildProcesses.delete(oxDNA);
+            }
             oxDNA = undefined;
             currentSimulationMeta = undefined;
             updateActiveSession();
@@ -414,6 +422,9 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
                 serverRssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
             });
 
+            if (oxDNA) {
+                activeChildProcesses.delete(oxDNA);
+            }
             oxDNA = undefined;
             currentSimulationMeta = undefined;
 
@@ -439,9 +450,42 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
 
 const LIVE_STATUS_INTERVAL_MS = Number(config.live_status_interval_ms ?? 5000);
 
-setInterval(() => {
+const liveStatusInterval = setInterval(() => {
     saveLiveStatus(activeSessionInfo, allowedConnections);
     recordUsageSample(activeSessionInfo, allowedConnections);
 }, LIVE_STATUS_INTERVAL_MS);
+
+let isShuttingDown = false;
+
+function shutdown(signal: NodeJS.Signals): void {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
+    console.log(`received ${signal}, shutting down`);
+    clearInterval(liveStatusInterval);
+
+    for (const child of activeChildProcesses) {
+        child.kill();
+    }
+    activeChildProcesses.clear();
+
+    for (const client of clients) {
+        client.close();
+    }
+
+    saveLiveStatus(activeSessionInfo, allowedConnections);
+    recordUsageSample(activeSessionInfo, allowedConnections);
+
+    server.close(() => {
+        process.exit(0);
+    });
+
+    setTimeout(() => {
+        process.exit(1);
+    }, 5000).unref();
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
 
 server.listen(config.serverPort, config.serverIP);

@@ -11,32 +11,38 @@ Backend for driving oxDNA simulations from oxView.
 * Clone the repository to your desired machine. 
 * Switch to the installation folder and execute `npm install`
 * Adjust settings as needed in `resources/config.json`
-* Compile TypeScript with `npx tsc`
-* Run the server by executing `node main.js`
+* Compile TypeScript with `npm run build`
+* Run the server by executing `npm start`
 
 ## Running with TLS certificates
 By default, ox-serve starts an HTTP server:
 
 ```sh
-node main.js
+npm start
 ```
 
 To start HTTPS, provide both certificate and private key files as command line arguments:
 
 ```sh
-node main.js --cert /path/to/cert.pem --key /path/to/key.pem
+node dist/main.js --cert /path/to/cert.pem --key /path/to/key.pem
 ```
 
 The equivalent long option names are also supported:
 
 ```sh
-node main.js --cert-file /path/to/cert.pem --key-file /path/to/key.pem
+node dist/main.js --cert-file /path/to/cert.pem --key-file /path/to/key.pem
 ```
 
 If your setup needs a certificate authority bundle, pass it with `--ca` or `--ca-file`:
 
 ```sh
-node main.js --cert /path/to/cert.pem --key /path/to/key.pem --ca /path/to/ca.pem
+node dist/main.js --cert /path/to/cert.pem --key /path/to/key.pem --ca /path/to/ca.pem
+```
+
+Use `--config` to point the server at a different config file:
+
+```sh
+node dist/main.js --config /path/to/config.json
 ```
 
 --- 
