@@ -1,8 +1,8 @@
 {
     "serverPort" : 8989,                              
     "serverIP" : "0.0.0.0",
-    "oxDNA"   : "/home/micha/anm-oxdna/oxDNA/build/bin/oxDNA",
-    "simulation_folder": "../simulations",  
+    "oxDNA"   : "/Users/m.matthies/oxDNA/build/bin/oxDNA",
+    "simulation_folder": "./simulations",  
     "input_file" : "input",
     "allowed_connections":5,
     "default_oxDNA_settings":{
@@ -13,5 +13,6 @@
         "lastconf_file"  : "last_conf.dat",
         "max_io"  : "10000",
         "bussi_tau" : "1"
-    }
+    },
+    "suppress_terminal_stdout": "true"
 }
