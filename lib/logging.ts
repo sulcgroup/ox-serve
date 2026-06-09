@@ -85,7 +85,7 @@ export type SimulationEvent = {
     sessionId: string;
     ip: string;
     browser: string;
-    event: "started" | "finished" | "error";
+    event: "started" | "finished" | "aborted" | "error";
     timestamp: string;
     interactionType: string;
     bases: number;

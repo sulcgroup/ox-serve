@@ -57,6 +57,7 @@ ensureLogDir();
 const activeSessionInfo = new Map<string, ActiveSessionInfo>();
 const activeChildProcesses = new Set<ChildProcess>();
 const allowedConnections = Number(config.allowed_connections ?? 0);
+const maxIdleTimeMs = Number(config.max_idle_time_ms ?? 5 * 60 * 1000);
 const certificateOptions = loadCertificateOptions(process.argv.slice(2));
 const { protocol, server } = createConfiguredServer(certificateOptions);
 
@@ -109,6 +110,8 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
     let currentSimulationStartedAtMs = 0;
     let currentSimulationMeta: ActiveSimulationInfo | undefined;
     let cleanedUp = false;
+    let idleTimeout: NodeJS.Timeout | undefined;
+    const userAbortedProcesses = new WeakSet<ChildProcess>();
 
     activeSessionInfo.set(user_id, {
         sessionId: user_id,
@@ -151,6 +154,31 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
         updateActiveSession();
     }
 
+    function clearIdleTimeout(): void {
+        if (!idleTimeout) return;
+
+        clearTimeout(idleTimeout);
+        idleTimeout = undefined;
+    }
+
+    function armIdleTimeout(): void {
+        clearIdleTimeout();
+
+        if (maxIdleTimeMs <= 0 || oxDNA) return;
+
+        idleTimeout = setTimeout(() => {
+            if (cleanedUp || oxDNA || connection.readyState !== WebSocket.OPEN) {
+                return;
+            }
+
+            console.log(
+                `client ${user_id} idle for ${formatDuration(maxIdleTimeMs)}, disconnecting`,
+            );
+            connection.close();
+        }, maxIdleTimeMs);
+        idleTimeout.unref();
+    }
+
     recordUsageSample(activeSessionInfo, allowedConnections);
 
     console.log(`client ${user_id} connected | ip=${ip} | browser=${browser}`);
@@ -164,6 +192,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
         if (cleanedUp) return;
         cleanedUp = true;
 
+        clearIdleTimeout();
         clients.delete(connection);
 
         if (oxDNA) {
@@ -213,6 +242,8 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
     }
 
     connection.on("message", (rawMessage: any) => {
+        clearIdleTimeout();
+
         const message = rawMessage.toString();
         const messageBytes = Buffer.byteLength(message, "utf8");
 
@@ -223,6 +254,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
 
         if (message === "abort") {
             if (oxDNA) {
+                userAbortedProcesses.add(oxDNA);
                 activeChildProcesses.delete(oxDNA);
                 oxDNA.kill();
                 oxDNA = undefined;
@@ -230,6 +262,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
             currentSimulationMeta = undefined;
             updateActiveSession();
             recordUsageSample(activeSessionInfo, allowedConnections);
+            armIdleTimeout();
             return;
         }
 
@@ -249,6 +282,7 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
             sendTracked({
                 console_log: "Invalid JSON message",
             });
+            armIdleTimeout();
             return;
         }
 
@@ -331,12 +365,15 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
             serverRssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
         });
 
-        oxDNA = spawn(config.oxDNA, [config.input_file], { cwd: dir });
-        activeChildProcesses.add(oxDNA);
+        const simulationStartedAtMs = currentSimulationStartedAtMs;
+        const simulationMeta = currentSimulationMeta;
+        const child = spawn(config.oxDNA, [config.input_file], { cwd: dir });
+        oxDNA = child;
+        activeChildProcesses.add(child);
 
         console.log(`client ${user_id} | relax | started`);
 
-        oxDNA.stdout?.on("data", (chunk: Buffer) => {
+        child.stdout?.on("data", (chunk: Buffer) => {
             const console_log = chunk.toString();
 
             if (!SUPPRESS_TERMINAL_STDOUT) {
@@ -351,11 +388,11 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
             }
         });
 
-        oxDNA.stderr?.on("data", (chunk: Buffer) => {
+        child.stderr?.on("data", (chunk: Buffer) => {
             console.error(`stderr: ${chunk.toString()}`);
         });
 
-        oxDNA.on("error", (err: Error) => {
+        child.on("error", (err: Error) => {
             simulationsFailed++;
 
             console.error(`client ${user_id} | oxDNA error: ${err.message}`);
@@ -369,10 +406,10 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
                 interactionType,
                 bases: topologyStats.bases,
                 strands: topologyStats.strands,
-                hasExternalForces: currentSimulationMeta?.hasExternalForces ?? false,
-                hasANM: currentSimulationMeta?.hasANM ?? false,
-                runtimeMs: currentSimulationStartedAtMs
-                    ? Date.now() - currentSimulationStartedAtMs
+                hasExternalForces: simulationMeta?.hasExternalForces ?? false,
+                hasANM: simulationMeta?.hasANM ?? false,
+                runtimeMs: simulationStartedAtMs
+                    ? Date.now() - simulationStartedAtMs
                     : undefined,
                 errorMessage: err.message,
                 loadavg1: os.loadavg()[0],
@@ -383,21 +420,25 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
                 console_log: `oxDNA error: ${err.message}`,
             });
 
-            if (oxDNA) {
-                activeChildProcesses.delete(oxDNA);
+            activeChildProcesses.delete(child);
+            if (oxDNA === child) {
+                oxDNA = undefined;
+                currentSimulationMeta = undefined;
+                armIdleTimeout();
             }
-            oxDNA = undefined;
-            currentSimulationMeta = undefined;
             updateActiveSession();
             recordUsageSample(activeSessionInfo, allowedConnections);
         });
 
-        oxDNA.on("close", (code: number | null) => {
-            const runtimeMs = currentSimulationStartedAtMs
-                ? Date.now() - currentSimulationStartedAtMs
+        child.on("close", (code: number | null) => {
+            const runtimeMs = simulationStartedAtMs
+                ? Date.now() - simulationStartedAtMs
                 : 0;
+            const userAborted = userAbortedProcesses.has(child);
 
-            if (code === 0) {
+            if (userAborted) {
+                console.log(`client ${user_id} | relax | aborted by user`);
+            } else if (code === 0) {
                 simulationsCompleted++;
             } else {
                 simulationsFailed++;
@@ -409,26 +450,26 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
                 sessionId: user_id,
                 ip,
                 browser,
-                event: "finished",
+                event: userAborted ? "aborted" : "finished",
                 timestamp: new Date().toISOString(),
                 interactionType,
                 bases: topologyStats.bases,
                 strands: topologyStats.strands,
-                hasExternalForces: currentSimulationMeta?.hasExternalForces ?? false,
-                hasANM: currentSimulationMeta?.hasANM ?? false,
+                hasExternalForces: simulationMeta?.hasExternalForces ?? false,
+                hasANM: simulationMeta?.hasANM ?? false,
                 runtimeMs,
                 exitCode: code,
                 loadavg1: os.loadavg()[0],
                 serverRssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
             });
 
-            if (oxDNA) {
-                activeChildProcesses.delete(oxDNA);
+            activeChildProcesses.delete(child);
+            if (oxDNA === child) {
+                oxDNA = undefined;
+                currentSimulationMeta = undefined;
             }
-            oxDNA = undefined;
-            currentSimulationMeta = undefined;
 
-            if (existsSync(`${dir}/last_conf.dat`)) {
+            if (!userAborted && existsSync(`${dir}/last_conf.dat`)) {
                 sendTracked({
                     dat_file: readFileSync(`${dir}/last_conf.dat`, "utf8"),
                     console_log: `oxDNA finished with code ${code}`,
@@ -437,8 +478,13 @@ wss.on("connection", (connection: WebSocket, req: IncomingMessage) => {
 
             updateActiveSession();
             recordUsageSample(activeSessionInfo, allowedConnections);
+            if (oxDNA === undefined) {
+                armIdleTimeout();
+            }
         });
     });
+
+    armIdleTimeout();
 
     connection.on("close", cleanup);
 

@@ -5,6 +5,7 @@
     "simulation_folder": "./simulations",  
     "input_file" : "input",
     "allowed_connections":5,
+    "max_idle_time_ms":300000,
     "default_oxDNA_settings":{
         "conf_file"  : "conf_file.dat",
         "topology"  : "top_file.top",
